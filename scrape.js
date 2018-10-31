@@ -26,12 +26,16 @@ const HEADER_ROW = [
   'FACILITY'
 ];
 
+const NUM_COLS = HEADER_ROW.length;
+
+const OUR_HEADER_ROW = ['BOROUGH', ...HEADER_ROW];
+
 let dataBuffer = fs.readFileSync(`${BASE_NAME}.pdf`);
 
 console.log('parsing pdf...');
 
 const g_badRows = [];
-const g_allRows = [HEADER_ROW];
+const g_allRows = [OUR_HEADER_ROW];
 
 // default render callback
 function render_page(pageData) {
@@ -103,7 +107,7 @@ function render_page(pageData) {
   const coalescedPageLineItems = [];
 
   pageLineItems.forEach((items) => {
-    assert(items.length <= 8, 'Rows should have no more than 8 columns');
+    assert(items.length <= NUM_COLS, `Rows should have no more than ${NUM_COLS} columns`);
     const firstItemAsNumber = parseInt(items[0].text);
     if (isNaN(firstItemAsNumber)) {
       // This is a continuation row.
@@ -120,8 +124,8 @@ function render_page(pageData) {
       });
     } else {
       // This is the beginning of a new row.
-      if (items.length < 8) {
-        if (items.length === 7 && !isNaN(parseInt(items[6].text))) {
+      if (items.length < NUM_COLS) {
+        if (items.length === NUM_COLS - 1 && !isNaN(parseInt(items[NUM_COLS - 2].text))) {
           // It's just a normal column with the last column being blank.
           items.push({ x: 0, y: 0, text: '' });
         } else {
@@ -137,8 +141,8 @@ function render_page(pageData) {
   });
 
   const fullRows = coalescedPageLineItems
-    .filter(items => items.length === 8)
-    .map(items => items.map(item => item.text));
+    .filter(items => items.length === NUM_COLS)
+    .map(items => [borough, ...items.map(item => item.text)]);
 
   g_allRows.push.apply(g_allRows, fullRows);
 }).catch(e => {
