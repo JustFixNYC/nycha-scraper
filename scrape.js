@@ -1,11 +1,37 @@
 const fs = require('fs');
-const pdf = require('pdf-parse');
 const assert = require('assert');
+const pdf = require('pdf-parse');
+const generateCsv = require('csv-stringify/lib/sync');
 
 console.log('reading pdf...');
-let dataBuffer = fs.readFileSync('Block-and-Lot-Guide-08272018.pdf');
+
+const BASE_NAME = 'Block-and-Lot-Guide-08272018';
+
+const BOROUGHS = [
+  'BRONX',
+  'BROOKLYN',
+  'MANHATTAN',
+  'QUEENS',
+  'STATEN ISLAND'
+];
+
+const HEADER_ROW = [
+  'BLOCK',
+  'LOT',
+  'ADDRESS',
+  'ZIP CODE',
+  'DEVELOPMENT',
+  'MANAGED BY',
+  'CD#',
+  'FACILITY'
+];
+
+let dataBuffer = fs.readFileSync(`${BASE_NAME}.pdf`);
 
 console.log('parsing pdf...');
+
+const g_badRows = [];
+const g_allRows = [HEADER_ROW];
 
 // default render callback
 function render_page(pageData) {
@@ -50,13 +76,6 @@ function render_page(pageData) {
 
   const NUM_FOOTER_LINES = 3;
   const NUM_HEADER_LINES = 4;
-  const BOROUGHS = [
-    'BRONX',
-    'BROOKLYN',
-    'MANHATTAN',
-    'QUEENS',
-    'STATEN ISLAND'
-  ];
 
   let [ _, pageNumber, borough ] = pageLineItems.slice(-NUM_FOOTER_LINES).map(i => i[0].text);
 
@@ -78,14 +97,7 @@ function render_page(pageData) {
     [ 'NYCHA PROPERTY DIRECTORY ' ],
     [ borough ],
     [ 'BLOCK and LOT GUIDE' ],
-    [ 'BLOCK',
-      'LOT',
-      'ADDRESS',
-      'ZIP CODE',
-      'DEVELOPMENT',
-      'MANAGED BY',
-      'CD#',
-      'FACILITY' ]
+    HEADER_ROW,
   ], 'header rows must be what we expect');
 
   const coalescedPageLineItems = [];
@@ -109,14 +121,26 @@ function render_page(pageData) {
     } else {
       // This is the beginning of a new row.
       if (items.length < 8) {
-        // TODO: Some of the items are empty, figure out what they are.
+        if (items.length === 7 && !isNaN(parseInt(items[6].text))) {
+          // It's just a normal column with the last column being blank.
+          items.push({ x: 0, y: 0, text: '' });
+        } else {
+          const rowText = items.map(item => item.text).join(' ');
+          console.log(`WARNING: Not sure what to do with: ${rowText}`);
+          g_badRows.push(items);
+          assert(!/MANAGEMENT/i.test(rowText), 'sparse row should not be a management office');
+        }
       }
       coalescedPageLineItems.push(items);
     }
     return;
   });
 
-  return '';
+  const fullRows = coalescedPageLineItems
+    .filter(items => items.length === 8)
+    .map(items => items.map(item => item.text));
+
+  g_allRows.push.apply(g_allRows, fullRows);
 }).catch(e => {
   // Apparently whatever uses us doesn't do anything with exceptions, so
   // we'll log and terminate ourselves.
@@ -130,5 +154,11 @@ let options = {
 }
 
 pdf(dataBuffer, options).then(function(data) {
-  console.log("Done.");
+  console.log(`Found ${g_allRows.length - 1} good rows and ${g_badRows.length} bad ones.`);
+
+  const csv = generateCsv(g_allRows);
+  const outfile = `${BASE_NAME}.csv`;
+
+  fs.writeFileSync(outfile, csv); 
+  console.log(`Wrote ${outfile}.`);
 });
