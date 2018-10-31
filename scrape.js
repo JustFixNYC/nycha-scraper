@@ -1,5 +1,6 @@
 const fs = require('fs');
 const pdf = require('pdf-parse');
+const assert = require('assert');
 
 console.log('reading pdf...');
 let dataBuffer = fs.readFileSync('Block-and-Lot-Guide-08272018.pdf');
@@ -30,7 +31,7 @@ function render_page(pageData) {
     lineItems.push(lineItem);
   }
 
-  const pageLineItems = [];
+  let pageLineItems = [];
 
   Array.from(lineItemsMap.keys())
     // LOL, JS sorts them lexographically by default, so we need to provide
@@ -57,12 +58,47 @@ function render_page(pageData) {
       pageLineItems.push(lineItems);
     });
 
-  pageLineItems.forEach(lineItems => console.log(lineItems.map(i => i.text)));
+  const NUM_FOOTER_LINES = 2;
+  const NUM_HEADER_LINES = 4;
+  const BOROUGHS = [
+    'BRONX',
+    'BROOKLYN',
+    'MANHATTAN',
+    'QUEENS',
+    'STATEN ISLAND'
+  ];
 
-  // TODO: Remove this line.
-  process.exit(1);
+  let [ pageNumber, borough ] = pageLineItems.slice(-NUM_FOOTER_LINES).map(i => i[0].text);
 
-  return text;
+  console.log(`Processing page ${pageNumber} (${borough})`);
+
+  assert(BOROUGHS.indexOf(borough) !== -1, 'borough must be a borough');
+
+  pageLineItems = pageLineItems.slice(0, -NUM_FOOTER_LINES);
+
+  const headerLines = pageLineItems.slice(0, NUM_HEADER_LINES).map(items => items.map(item => item.text));
+
+  pageLineItems = pageLineItems.slice(NUM_HEADER_LINES);
+
+  pageNumber = parseInt(pageNumber);
+
+  assert(!isNaN(pageNumber), 'page number must be a number');
+
+  assert.deepEqual(headerLines, [
+    [ 'NYCHA PROPERTY DIRECTORY ' ],
+    [ borough ],
+    [ 'BLOCK and LOT GUIDE' ],
+    [ 'BLOCK',
+      'LOT',
+      'ADDRESS',
+      'ZIP CODE',
+      'DEVELOPMENT',
+      'MANAGED BY',
+      'CD#',
+      'FACILITY' ]
+  ], 'header rows must be what we expect');
+
+  return '';
 });
 }
 
@@ -71,19 +107,5 @@ let options = {
 }
 
 pdf(dataBuffer, options).then(function(data) {
-
-	// number of pages
-	console.log(data.numpages);
-	// number of rendered pages
-	console.log(data.numrender);
-	// PDF info
-	console.log(data.info);
-	// PDF metadata
-	console.log(data.metadata); 
-	// PDF.js version
-	// check https://mozilla.github.io/pdf.js/getting_started/
-	console.log(data.version);
-	// PDF text
-	console.log(data.text.slice(0, 1000)); 
-        
+  console.log("Done.");
 });
