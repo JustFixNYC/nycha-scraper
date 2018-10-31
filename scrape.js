@@ -45,20 +45,10 @@ function render_page(pageData) {
         if (a.x > b.x) return 1;
         return 0;
       });
-      if (lineItems.length === 1 && pageLineItems.length > 0) {
-        const thisItem = lineItems[0];
-        const prevLineItems = pageLineItems[pageLineItems.length - 1];
-        const lastItemOfPrevLine = prevLineItems[prevLineItems.length - 1];
-
-        if (thisItem.x === lastItemOfPrevLine.x) {
-          lastItemOfPrevLine.text += thisItem.text;
-          return;
-        }
-      }
       pageLineItems.push(lineItems);
     });
 
-  const NUM_FOOTER_LINES = 2;
+  const NUM_FOOTER_LINES = 3;
   const NUM_HEADER_LINES = 4;
   const BOROUGHS = [
     'BRONX',
@@ -68,7 +58,7 @@ function render_page(pageData) {
     'STATEN ISLAND'
   ];
 
-  let [ pageNumber, borough ] = pageLineItems.slice(-NUM_FOOTER_LINES).map(i => i[0].text);
+  let [ _, pageNumber, borough ] = pageLineItems.slice(-NUM_FOOTER_LINES).map(i => i[0].text);
 
   console.log(`Processing page ${pageNumber} (${borough})`);
 
@@ -97,6 +87,37 @@ function render_page(pageData) {
       'CD#',
       'FACILITY' ]
   ], 'header rows must be what we expect');
+
+  const coalescedPageLineItems = [];
+  const firstRow = pageLineItems[0];
+
+  assert.equal(firstRow.length, 8, 'First row of page should have 8 items');
+
+  pageLineItems.forEach((items) => {
+    assert(items.length <= 8, 'Rows should have no more than 8 columns');
+    const firstItemAsNumber = parseInt(items[0].text);
+    if (isNaN(firstItemAsNumber)) {
+      // This is a continuation row.
+      const prevItems = coalescedPageLineItems[coalescedPageLineItems.length - 1];
+      items.forEach(item => {
+        for (let i = 0; i < prevItems.length; i++) {
+          const prevItem = prevItems[i];
+          if (prevItem.x === item.x) {
+            prevItem.text += item.text;
+            return;
+          }
+        }
+        throw new Error(`Unable to coalesce ${JSON.stringify(item.text)} into previous row`);
+      });
+    } else {
+      // This is the beginning of a new row.
+      if (items.length < 8) {
+        // TODO: Some of the items are empty, figure out what they are.
+      }
+      coalescedPageLineItems.push(items);
+    }
+    return;
+  });
 
   return '';
 });
