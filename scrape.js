@@ -89,9 +89,6 @@ function render_page(pageData) {
   ], 'header rows must be what we expect');
 
   const coalescedPageLineItems = [];
-  const firstRow = pageLineItems[0];
-
-  assert.equal(firstRow.length, 8, 'First row of page should have 8 items');
 
   pageLineItems.forEach((items) => {
     assert(items.length <= 8, 'Rows should have no more than 8 columns');
@@ -120,6 +117,11 @@ function render_page(pageData) {
   });
 
   return '';
+}).catch(e => {
+  // Apparently whatever uses us doesn't do anything with exceptions, so
+  // we'll log and terminate ourselves.
+  console.log(e);
+  process.exit(1);
 });
 }
 
