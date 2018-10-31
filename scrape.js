@@ -3,10 +3,13 @@ const assert = require('assert');
 const pdf = require('pdf-parse');
 const generateCsv = require('csv-stringify/lib/sync');
 
-console.log('reading pdf...');
-
+/**
+ * The base name of the PDF file we read, and the CSV
+ * file we write to.
+ */
 const BASE_NAME = 'Block-and-Lot-Guide-08272018';
 
+/** The boroughs, as they appear in the PDF. */
 const BOROUGHS = [
   'BRONX',
   'BROOKLYN',
@@ -15,6 +18,7 @@ const BOROUGHS = [
   'STATEN ISLAND'
 ];
 
+/** The header row for each page. */
 const HEADER_ROW = [
   'BLOCK',
   'LOT',
@@ -26,31 +30,47 @@ const HEADER_ROW = [
   'FACILITY'
 ];
 
+/** The number of columns in the table on each page. */
 const NUM_COLS = HEADER_ROW.length;
 
+/** The names of the columns we output in our CSV. */
 const OUR_HEADER_ROW = ['BOROUGH', ...HEADER_ROW];
 
-let dataBuffer = fs.readFileSync(`${BASE_NAME}.pdf`);
+/**
+ * The number of lines on each page that represent the
+ * "footer", e.g. the page number, notes, etc.
+ */
+const NUM_FOOTER_LINES = 3;
 
-console.log('parsing pdf...');
+/**
+ * The number of lines on each page that represent the
+ * "header", e.g. the header row, heading text, etc.
+ */
+const NUM_HEADER_LINES = 4;
 
+/**
+ * A list of all the "bad" rows we've encountered that
+ * we don't know what to do with.
+ * 
+ * This is a global because pdf-parse's API is weird.
+ */
 const g_badRows = [];
+
+/**
+ * A list of all the rows in our output CSV.
+ * 
+ * This is a global because pdf-parse's API is weird.
+ */
 const g_allRows = [OUR_HEADER_ROW];
 
-// default render callback
-function render_page(pageData) {
-  //check documents https://mozilla.github.io/pdf.js/
-  let render_options = {
-      //replaces all occurrences of whitespace with standard spaces (0x20). The default value is `false`.
-      normalizeWhitespace: false,
-      //do not attempt to combine same line TextItem's. The default value is `false`.
-      disableCombineTextItems: true
-  }
-
-  return pageData.getTextContent(render_options)
-.then(function(textContent) {
+/**
+ * Build a mapping from y-coordinates to all the items at
+ * each y-coordinate.
+ */
+function buildLineItemsMap(items) {
   let lineItemsMap = new Map();
-  for (let item of textContent.items) {
+
+  for (let item of items) {
     const y = item.transform[5];
     const x = item.transform[4];
     const lineItem = { x, y, text: item.str };
@@ -61,10 +81,21 @@ function render_page(pageData) {
     lineItems.push(lineItem);
   }
 
-  let pageLineItems = [];
+  return lineItemsMap;
+}
+
+/**
+ * Build a list of all the lines on the page.
+ * 
+ * Each line is a list of text fragments, ordered by
+ * their x-coordinate (i.e., from left-to-right).
+ */
+function buildPageLineItems(lineItemsMap) {
+  const pageLineItems = [];
 
   Array.from(lineItemsMap.keys())
-    // LOL, JS sorts them lexographically by default, so we need to provide
+    // LOL, even though we're sorting a list of numbers, JS sorts them
+    // lexographically by default, so we need to provide
     // our own comparison function.
     .sort((a, b) => a - b)
     .reverse()
@@ -78,32 +109,15 @@ function render_page(pageData) {
       pageLineItems.push(lineItems);
     });
 
-  const NUM_FOOTER_LINES = 3;
-  const NUM_HEADER_LINES = 4;
+  return pageLineItems;
+}
 
-  let [ _, pageNumber, borough ] = pageLineItems.slice(-NUM_FOOTER_LINES).map(i => i[0].text);
-
-  console.log(`Processing page ${pageNumber} (${borough})`);
-
-  assert(BOROUGHS.indexOf(borough) !== -1, 'borough must be a borough');
-
-  pageLineItems = pageLineItems.slice(0, -NUM_FOOTER_LINES);
-
-  const headerLines = pageLineItems.slice(0, NUM_HEADER_LINES).map(items => items.map(item => item.text));
-
-  pageLineItems = pageLineItems.slice(NUM_HEADER_LINES);
-
-  pageNumber = parseInt(pageNumber);
-
-  assert(!isNaN(pageNumber), 'page number must be a number');
-
-  assert.deepEqual(headerLines, [
-    [ 'NYCHA PROPERTY DIRECTORY ' ],
-    [ borough ],
-    [ 'BLOCK and LOT GUIDE' ],
-    HEADER_ROW,
-  ], 'header rows must be what we expect');
-
+/**
+ * Some "lines" on a page are actually just the continuation of a cell from
+ * the previous row. Ths coalesces the lines so that every line actually
+ * represents a table row.
+ */
+function coalescePageLineItems(pageLineItems) {
   const coalescedPageLineItems = [];
 
   pageLineItems.forEach((items) => {
@@ -137,32 +151,79 @@ function render_page(pageData) {
       }
       coalescedPageLineItems.push(items);
     }
-    return;
   });
 
-  const fullRows = coalescedPageLineItems
+  return coalescedPageLineItems;
+}
+
+/**
+ * Parse the page given to us by pdf-parse.
+ */
+function parsePage(textContent) {
+  let pageLineItems = buildPageLineItems(buildLineItemsMap(textContent.items));
+
+  let [ _, pageNumber, borough ] = pageLineItems
+    .slice(-NUM_FOOTER_LINES)
+    .map(i => i[0].text);
+
+  console.log(`Processing page ${pageNumber} (${borough})`);
+
+  assert(BOROUGHS.indexOf(borough) !== -1, 'borough must be a borough');
+
+  pageLineItems = pageLineItems.slice(0, -NUM_FOOTER_LINES);
+
+  const headerLines = pageLineItems.slice(0, NUM_HEADER_LINES).map(items => items.map(item => item.text));
+
+  pageLineItems = pageLineItems.slice(NUM_HEADER_LINES);
+
+  pageNumber = parseInt(pageNumber);
+
+  assert(!isNaN(pageNumber), 'page number must be a number');
+
+  assert.deepEqual(headerLines, [
+    [ 'NYCHA PROPERTY DIRECTORY ' ],
+    [ borough ],
+    [ 'BLOCK and LOT GUIDE' ],
+    HEADER_ROW,
+  ], 'header rows must be what we expect');
+
+  const fullRows = coalescePageLineItems(pageLineItems)
     .filter(items => items.length === NUM_COLS)
     .map(items => [borough, ...items.map(item => item.text)]);
 
   g_allRows.push.apply(g_allRows, fullRows);
-}).catch(e => {
-  // Apparently whatever uses us doesn't do anything with exceptions, so
-  // we'll log and terminate ourselves.
-  console.log(e);
-  process.exit(1);
-});
 }
 
-let options = {
-  pagerender: render_page
+/** Render the page given to us by pdf-parse. */
+function renderPage(pageData) {
+  //check documents https://mozilla.github.io/pdf.js/
+  return pageData.getTextContent({
+    // Replaces all occurrences of whitespace with standard spaces (0x20). The default value is `false`.
+    normalizeWhitespace: false,
+    // Do not attempt to combine same line TextItem's. The default value is `false`.
+    disableCombineTextItems: true
+  }).then(parsePage).catch(e => {
+    // Apparently whatever uses us doesn't do anything with exceptions, so
+    // we'll log and terminate ourselves.
+    console.log(e);
+    process.exit(1);
+  });
 }
 
-pdf(dataBuffer, options).then(function(data) {
-  console.log(`Found ${g_allRows.length - 1} good rows and ${g_badRows.length} bad ones.`);
+if (module.parent === null) {
+  console.log('Reading PDF...');
+  const dataBuffer = fs.readFileSync(`${BASE_NAME}.pdf`);
 
-  const csv = generateCsv(g_allRows);
-  const outfile = `${BASE_NAME}.csv`;
+  console.log('Parsing PDF...');
+  pdf(dataBuffer, {
+    pagerender: renderPage
+  }).then(function(data) {
+    console.log(`Found ${g_allRows.length - 1} good rows and ${g_badRows.length} bad ones.`);
 
-  fs.writeFileSync(outfile, csv); 
-  console.log(`Wrote ${outfile}.`);
-});
+    const csv = generateCsv(g_allRows);
+    const outfile = `${BASE_NAME}.csv`;
+
+    fs.writeFileSync(outfile, csv); 
+    console.log(`Wrote ${outfile}.`);
+  });
+}
