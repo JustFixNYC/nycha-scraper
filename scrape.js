@@ -1,13 +1,13 @@
 const fs = require('fs');
 const assert = require('assert');
 const pdf = require('pdf-parse');
-const generateCsv = require('csv-stringify/lib/sync');
+ const { generate } = require('csv-generate/sync');
 
 /**
  * The base name of the PDF file we read, and the CSV
  * file we write to.
  */
-const BASE_NAME = 'Block-and-Lot-Guide-08272018';
+const BASE_NAME = 'Block-and-Lot-Guide-01012024';
 
 /** The boroughs, as they appear in the PDF. */
 const BOROUGHS = [
@@ -183,7 +183,7 @@ function parsePage(textContent) {
   assert.deepEqual(headerLines, [
     [ 'NYCHA PROPERTY DIRECTORY ' ],
     [ borough ],
-    [ 'BLOCK and LOT GUIDE' ],
+    [ 'BLOCK and LOT GUIDE as of 1/1/2024' ],
     HEADER_ROW,
   ], 'header rows must be what we expect');
 
@@ -219,11 +219,17 @@ if (module.parent === null) {
     pagerender: renderPage
   }).then(function(data) {
     console.log(`Found ${g_allRows.length - 1} good rows and ${g_badRows.length} bad ones.`);
-
-    const csv = generateCsv(g_allRows);
+    const csv = generate(g_allRows);
+    // console.log('Generate csv function has finished.')
     const outfile = `${BASE_NAME}.csv`;
 
     fs.writeFileSync(outfile, csv); 
     console.log(`Wrote ${outfile}.`);
+
+    // testing writing out to a txt file below
+    // var file = fs.createWriteStream(`${BASE_NAME}.txt`);
+    // file.on('error', function(err) { /* error handling */ });
+    // g_allRows.forEach(function(v) { file.write(v.join(', ') + '\n'); });
+    // file.end();
   });
 }

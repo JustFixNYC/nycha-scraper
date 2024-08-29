@@ -9,6 +9,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "csv-generate": "^4.4.1",
+    "csv-stringify": "^6.5.1",
     "pdf-parse": "^1.1.1"
   }
+
 }
