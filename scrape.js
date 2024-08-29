@@ -1,7 +1,7 @@
 const fs = require('fs');
 const assert = require('assert');
 const pdf = require('pdf-parse');
- const { generate } = require('csv-generate/sync');
+const { stringify } = require("csv-stringify");
 
 /**
  * The base name of the PDF file we read, and the CSV
@@ -210,6 +210,16 @@ function renderPage(pageData) {
   });
 }
 
+function writeCsv(data, outfile) {
+  const writableStream = fs.createWriteStream(outfile);
+  const stringifier = stringify({ header: false });
+  data.forEach(row => {
+    stringifier.write(row)
+  });
+  stringifier.pipe(writableStream);
+  console.log('Generate csv function has finished.')
+}
+
 if (module.parent === null) {
   console.log('Reading PDF...');
   const dataBuffer = fs.readFileSync(`${BASE_NAME}.pdf`);
@@ -219,17 +229,8 @@ if (module.parent === null) {
     pagerender: renderPage
   }).then(function(data) {
     console.log(`Found ${g_allRows.length - 1} good rows and ${g_badRows.length} bad ones.`);
-    const csv = generate(g_allRows);
-    // console.log('Generate csv function has finished.')
-    const outfile = `${BASE_NAME}.csv`;
 
-    fs.writeFileSync(outfile, csv); 
-    console.log(`Wrote ${outfile}.`);
-
-    // testing writing out to a txt file below
-    // var file = fs.createWriteStream(`${BASE_NAME}.txt`);
-    // file.on('error', function(err) { /* error handling */ });
-    // g_allRows.forEach(function(v) { file.write(v.join(', ') + '\n'); });
-    // file.end();
+    writeCsv(g_allRows, `${BASE_NAME}.csv`)
+    writeCsv(g_badRows, `${BASE_NAME}_BAD-ROWS.csv`)
   });
 }
